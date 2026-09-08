@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url';
 import { parseSocialNote, renderSocialNote, updateSourceSection } from './social-note.mjs';
 import { createSocialStore } from './social-store.mjs';
 import { bridgeConfig,childProcessEnv } from './config.mjs';
+import { extendedPlatformForUrl, canonicalExtendedUrl, wechatArticleIdentity, effectiveNotePlatform, normalizePlatformData } from './link-platforms.mjs';
+import { extractArticlePageData } from './article-page-extractors.mjs';
+import { extractCrowdfundingPageData } from './crowdfunding-page-extractors.mjs';
 
 const MAX_LINKS = 8, MAX_BODY = 100_000, MAX_CONTEXT = 24_000;
 const BIN = { browserUse:bridgeConfig.browserUseBin,curl:bridgeConfig.curlBin,ytdlp:bridgeConfig.ytDlpBin,codex:bridgeConfig.codexBin };
@@ -27,6 +30,8 @@ export function extractWebLinks(text) {
 }
 
 export function platformForUrl(value) {
+  const extended = extendedPlatformForUrl(value);
+  if (extended) return extended;
   const host = new URL(value).hostname.toLowerCase().replace(/^www\./, '');
   if (host === 'douyin.com' || host.endsWith('.douyin.com') || host.endsWith('.iesdouyin.com')) return 'douyin';
   if (host === 'xhslink.com' || host === 'xiaohongshu.com' || host.endsWith('.xiaohongshu.com')) return 'xiaohongshu';
@@ -42,6 +47,8 @@ export function isUrlOnlyMessage(text) {
 }
 
 export function canonicalizeUrl(value, platform = platformForUrl(value)) {
+  const extended = canonicalExtendedUrl(value, platform);
+  if (extended) return extended;
   const url = new URL(value); url.hash = '';
   if (platform === 'youtube' && youtubeId(url)) return `https://www.youtube.com/watch?v=${youtubeId(url)}`;
   if (platform === 'douyin') {
@@ -70,6 +77,7 @@ export function canonicalizeUrl(value, platform = platformForUrl(value)) {
 
 export function sourceKeyFor(value, platform = platformForUrl(value)) {
   const url = new URL(canonicalizeUrl(value, platform));
+  if (platform === 'wechat') { const identity = wechatArticleIdentity(url.href); if (identity) return `wechat:${digest(identity.key).slice(0, 24)}`; }
   if (platform === 'youtube' && youtubeId(url)) return `youtube:${youtubeId(url)}`;
   if (platform === 'douyin') { const id = /\/(?:video|note)\/(\d+)/.exec(url.pathname)?.[1]; if (id) return `douyin:${id}`; }
   if (platform === 'xiaohongshu') { const id = /\/explore\/([a-f\d]+)/i.exec(url.pathname)?.[1]; if (id) return `xiaohongshu:${id}`; }
@@ -98,6 +106,19 @@ export async function createSocialLinkCollector(options = {}) {
   const runner = options.runner || runCommand;
   const store = options.store || createSocialStore({ stateDir });
   const aliases = new Map();
+  const ambiguousAliases = new Set();
+  function aliasKeys(value) { return [value, canonicalizeUrl(value), `identity:${sourceKeyFor(value)}`]; }
+  function registerAlias(value, key) {
+    for (const alias of aliasKeys(value)) {
+      if (aliases.has(alias) && aliases.get(alias) !== key) ambiguousAliases.add(alias);
+      else aliases.set(alias, key);
+    }
+  }
+  function lookupAlias(value) {
+    const keys = aliasKeys(value);
+    if (keys.some(key => ambiguousAliases.has(key))) throw new Error('多篇已有笔记对应同一链接身份，请先核对重复笔记；本次没有自动选择或覆盖');
+    return keys.map(key => aliases.get(key)).find(Boolean);
+  }
   let collectQueue = Promise.resolve();
   const clips = [];
   for (const entry of await readdir(vaultDir, { withFileTypes: true })) {
@@ -106,13 +127,19 @@ export async function createSocialLinkCollector(options = {}) {
     const raw = await readFile(path, 'utf8');
     if (!/^note_type:\s*["']?social_clip["']?\s*$/m.test(raw)) continue;
     const clip = clipFromNote(raw, path); if (!clip.sourceKey) continue;
-    clips.push(clip); for (const alias of clip.aliases) { aliases.set(alias, clip.sourceKey); try { aliases.set(canonicalizeUrl(alias), clip.sourceKey); } catch {} }
+    const prior = store.getSource(clip.sourceKey);
+    if (prior?.canonicalUrl === clip.canonicalUrl) clip.aliases = [...new Set([...clip.aliases, ...(prior.aliases || [])])];
+    clips.push(clip); for (const alias of clip.aliases) { try { registerAlias(alias, clip.sourceKey); } catch {} }
   }
   store.reconcileSources(clips);
 
   async function existingClip(key) {
     const entry = store.getSource(key); if (!entry?.path) return null;
-    try { return { ...entry, ...clipFromNote(await readFile(entry.path, 'utf8'), entry.path), reused: true, updated: false }; }
+    try {
+      const current = clipFromNote(await readFile(entry.path, 'utf8'), entry.path);
+      if (current.canonicalUrl === entry.canonicalUrl) current.aliases = [...new Set([...current.aliases, ...(entry.aliases || [])])];
+      return { ...entry, ...current, reused: true, updated: false };
+    }
     catch (error) { if (error.code !== 'ENOENT') throw error; return null; }
   }
 
@@ -127,13 +154,13 @@ export async function createSocialLinkCollector(options = {}) {
       const hinted = platformForUrl(sourceUrl);
       try {
         let resolvedUrl = sourceUrl;
-        let key = aliases.get(sourceUrl) || aliases.get(canonicalizeUrl(sourceUrl, hinted)) || sourceKeyFor(sourceUrl, hinted);
+        let key = lookupAlias(sourceUrl) || sourceKeyFor(sourceUrl, hinted);
         let existing = await existingClip(key);
         if (existing && !refresh) { saved.push(existing); continue; }
         if (!existing) {
           resolvedUrl = await resolveShortUrl(sourceUrl, scopedRunner);
-          key = aliases.get(canonicalizeUrl(resolvedUrl)) || sourceKeyFor(resolvedUrl); existing = await existingClip(key);
-          if (existing && !refresh) { aliases.set(sourceUrl, key); saved.push(existing); continue; }
+          key = lookupAlias(resolvedUrl) || sourceKeyFor(resolvedUrl); existing = await existingClip(key);
+          if (existing && !refresh) { registerAlias(sourceUrl, key); saved.push(existing); continue; }
         }
         const platform = platformForUrl(resolvedUrl);
         const fetched = options.fetchPlatform ? await options.fetchPlatform(resolvedUrl, platform, scopedRunner, context) : await fetchPlatformContent(resolvedUrl, platform, scopedRunner, context);
@@ -141,9 +168,21 @@ export async function createSocialLinkCollector(options = {}) {
         validateContent(fetched, platform);
         const canonicalUrl = validateCapturedIdentity(resolvedUrl, fetched, platform);
         const canonicalKey = sourceKeyFor(canonicalUrl, platform);
-        if (!existing && canonicalKey !== key) { key = aliases.get(canonicalUrl) || canonicalKey; existing = await existingClip(key); if (existing && !refresh) { aliases.set(sourceUrl, key); saved.push(existing); continue; } }
+        const provenUrls = [...new Set([sourceUrl, resolvedUrl, canonicalUrl, fetched.url].filter(Boolean))];
+        const knownKeys = [...new Set([existing?.sourceKey, ...provenUrls.map(lookupAlias)].filter(Boolean))];
+        if (knownKeys.length > 1) throw new Error('页面别名对应多篇已有笔记，请先核对重复来源；本次没有覆盖');
+        key = knownKeys[0] || canonicalKey;
+        if (!existing) existing = await existingClip(key);
+        if (existing && !refresh) {
+          // A newly proved long/short alias is catalog metadata, not a change to
+          // the human-reviewed Markdown. Persist it without a new snapshot.
+          existing.aliases = [...new Set([...existing.aliases, ...provenUrls])];
+          store.upsertSource(existing);
+          for (const alias of existing.aliases) registerAlias(alias, key);
+          saved.push(existing); continue;
+        }
         const clip = normalizeClip({ ...fetched, platform, sourceUrl, canonicalUrl, sourceKey: key });
-        clip.aliases = [...new Set([sourceUrl, resolvedUrl, canonicalUrl, ...(existing?.aliases || [])])];
+        clip.aliases = [...new Set([sourceUrl, resolvedUrl, canonicalUrl, fetched.url, ...(existing?.aliases || [])].filter(Boolean))];
         if (existing && context.metricsOnly) {
           clip.body = existing.body; clip.captureKind = existing.captureKind; clip.fetchStatus = existing.fetchStatus;
           clip.author = existing.author; clip.publishedAt = existing.publishedAt;
@@ -158,7 +197,7 @@ export async function createSocialLinkCollector(options = {}) {
         const output = { ...clip, ...result, reused: false };
         checkAbort(context.signal);
         store.upsertSource(output); store.recordSnapshot(output);
-        for (const alias of clip.aliases) { aliases.set(alias, key); try { aliases.set(canonicalizeUrl(alias), key); } catch {} }
+        for (const alias of clip.aliases) registerAlias(alias, key);
         saved.push(output);
       } catch (error) {
         if (context.signal?.aborted || error.name === 'AbortError') throw abortError();
@@ -213,6 +252,10 @@ export function validateCapturedIdentity(requestUrl, captured, platform = platfo
   } catch { throw new Error('采集结果的页面地址无效，未保存'); }
   if (![observed, canonical].every(url => ['http:', 'https:'].includes(url.protocol))) throw new Error('采集结果不是有效网页，未保存');
   const observedPlatform = platformForUrl(observed.href);
+  if (platform === 'wechat') {
+    const proofs = [observed.href, canonical.href, ...(Array.isArray(captured.identityUrls) ? captured.identityUrls.slice(0, 4) : [])].map(wechatArticleIdentity).filter(Boolean);
+    if (['long', 'short'].some(kind => new Set(proofs.filter(item => item.kind === kind).map(item => item.key)).size > 1)) throw new Error('公众号页面包含冲突的文章身份，已拒绝合并来源');
+  }
   const shortPlatforms = { 'v.douyin.com': 'douyin', 'xhslink.com': 'xiaohongshu', 'b23.tv': 'bilibili', 't.cn': 'weibo' };
   const shortPlatform = shortPlatforms[requested.hostname];
   if (observedPlatform !== platform || (shortPlatform && observedPlatform !== shortPlatform)) throw new Error('检测到浏览器串页：返回的平台不是请求的平台，已拒绝保存');
@@ -225,9 +268,20 @@ export function validateCapturedIdentity(requestUrl, captured, platform = platfo
     };
     return normalize(a) === normalize(b);
   };
-  if (!shortPlatform && !same(requested.href, observed.href)) throw new Error('检测到浏览器串页或未确认重定向：返回的内容不是请求的链接，已拒绝保存');
-  if (!same(observed.href, canonical.href)) throw new Error('当前网页地址与规范来源指向不同内容，已拒绝保存串页结果');
+  const evidencedWechatAlias = (a, b) => {
+    if (platform !== 'wechat' || !captured.contentRoot) return false;
+    const left = wechatArticleIdentity(a), right = wechatArticleIdentity(b);
+    if (!left || !right || left.kind === right.kind) return false;
+    const identities = [observed.href, ...(Array.isArray(captured.identityUrls) ? captured.identityUrls.slice(0, 4) : [])].map(wechatArticleIdentity).filter(Boolean);
+    return identities.some(item => item.key === left.key) && identities.some(item => item.key === right.key);
+  };
+  if (!shortPlatform && !same(requested.href, observed.href) && !evidencedWechatAlias(requested.href, observed.href)) throw new Error('检测到浏览器串页或未确认重定向：返回的内容不是请求的链接，已拒绝保存');
+  if (!same(observed.href, canonical.href) && !evidencedWechatAlias(observed.href, canonical.href)) throw new Error('当前网页地址与规范来源指向不同内容，已拒绝保存串页结果');
   if (shortPlatform && shortPlatforms[observed.hostname]) throw new Error('短链接尚未解析到具体内容，未保存');
+  if (platform === 'wechat') {
+    const longUrl = [requested.href, observed.href, canonical.href, ...(Array.isArray(captured.identityUrls) ? captured.identityUrls.slice(0, 4) : [])].find(value => wechatArticleIdentity(value)?.kind === 'long' && (same(value, observed.href) || evidencedWechatAlias(value, observed.href)));
+    if (longUrl) return canonicalizeUrl(longUrl, platform);
+  }
   return canonicalizeUrl(canonical.href, platform);
 }
 
@@ -259,7 +313,8 @@ async function fetchSubtitles(url, runner) {
 }
 
 export async function fetchBrowserPage(url, platform, runner) {
-  const source = `(${extractPageData.toString()})(${JSON.stringify(platform)})`;
+  const extractor = ['wechat', 'github'].includes(platform) ? extractArticlePageData : ['kickstarter', 'indiegogo'].includes(platform) ? extractCrowdfundingPageData : extractPageData;
+  const source = `(${extractor.toString()})(${JSON.stringify(platform)})`;
   const attempts = platform === 'youtube' ? 8 : 5;
   const navigation = `setTimeout(() => location.assign(${JSON.stringify(url)}), 0); true`;
   const script = `import json, time, signal\ndef _social_cancel(signum, frame):\n    raise SystemExit(130)\nsignal.signal(signal.SIGTERM, _social_cancel)\ntid = None\ntry:\n    tid = new_tab()\n    print("__SOCIAL_TAB__" + json.dumps(tid), flush=True)\n    switch_tab(tid)\n    js(${JSON.stringify(navigation)}, target_id=tid)\n    for load_attempt in range(50):\n        try:\n            switch_tab(tid)\n            state = js("({url:location.href, ready:document.readyState})", target_id=tid)\n            if state.get("url") != "about:blank" and state.get("ready") != "loading":\n                break\n        except Exception:\n            if load_attempt == 49:\n                raise\n        time.sleep(0.5)\n    data = {}\n    for attempt in range(${attempts}):\n        try:\n            switch_tab(tid)\n            data = js(${JSON.stringify(source)}, target_id=tid)\n        except Exception:\n            if attempt == ${attempts - 1}:\n                raise\n            time.sleep(1.5)\n            continue\n        ready = attempt > 0 and data.get("contentRoot") and len(data.get("body", "")) >= 1\n        if ${platform === 'youtube' ? 'True' : 'False'}:\n            ready = ready and (any(data.get("metrics", {}).values()) or attempt >= 6)\n        if data.get("isLoginWall") or data.get("error") or ready:\n            break\n        if attempt < ${attempts - 1}:\n            time.sleep(1.5)\n    print("__SOCIAL_CAPTURE__" + json.dumps(data, ensure_ascii=False))\nfinally:\n    if tid is not None:\n        close_tab(tid)\n`;
@@ -468,7 +523,7 @@ function normalizeClip(input) {
   const body = original.slice(0, MAX_BODY).trim();
   return { platform: input.platform, sourceUrl: input.sourceUrl, canonicalUrl: input.canonicalUrl, sourceKey: input.sourceKey,
     title: cleanTitle(input.title), author: String(input.author || '').trim(), publishedAt: String(input.publishedAt || '').trim(), fetchedAt: new Date().toISOString(),
-    fetchStatus: (input.fetchStatus || input.status) === 'complete' && original.length <= MAX_BODY ? 'complete' : 'partial', captureKind: input.captureKind || 'article', body, metrics: normalizeMetrics(input.metrics), tags: [] };
+    fetchStatus: (input.fetchStatus || input.status) === 'complete' && original.length <= MAX_BODY ? 'complete' : 'partial', captureKind: input.captureKind || 'article', body, metrics: normalizeMetrics(input.metrics), platformData: normalizePlatformData(input.platformData), tags: [] };
 }
 
 async function summarizeClip(clip, summarizer, runner, signal) {
@@ -539,6 +594,7 @@ async function saveClip(vaultDir, clip, existing, context) {
     }
     const current = parseSocialNote(text);
     return { path, updated: Boolean(existing), title: current.title, summary: current.summary, personal: current.personal,
+      sourceKey: current.fields.source_key, canonicalUrl: current.fields.canonical_url, sourceUrl: current.fields.source_url,
       tags: Array.isArray(current.fields.tags) ? current.fields.tags : [], createdAt: current.fields.created || clip.fetchedAt, ...(backupPath ? { backupPath } : {}) };
   } finally { await rm(temp, { force: true }); }
 }
@@ -546,10 +602,10 @@ async function saveClip(vaultDir, clip, existing, context) {
 function clipFromNote(raw, path) {
   const parsed = parseSocialNote(raw), f = parsed.fields;
   return { path, title: parsed.title, summary: parsed.summary, personal: parsed.personal, body: parsed.rawText,
-    platform: f.platform, sourceKey: f.source_key, sourceUrl: f.source_url, canonicalUrl: f.canonical_url || f.source_url,
+    platform: effectiveNotePlatform(f.platform, f.canonical_url || f.source_url), sourceKey: f.source_key, sourceUrl: f.source_url, canonicalUrl: f.canonical_url || f.source_url,
     author: f.author || '', publishedAt: f.published_at || '', fetchedAt: f.fetched_at || f.created || '', createdAt: f.created || '',
     fetchStatus: f.fetch_status || 'partial', captureKind: f.capture_kind || 'article', summaryKind: f.summary_kind || 'excerpt',
-    metrics: normalizeMetrics(f.metrics), tags: Array.isArray(f.tags) ? f.tags : [],
+    metrics: normalizeMetrics(f.metrics), platformData: normalizePlatformData(f.platform_data), tags: Array.isArray(f.tags) ? f.tags : [],
     aliases: [...new Set([f.source_url, f.canonical_url, ...(Array.isArray(f.source_aliases) ? f.source_aliases : [])].filter(Boolean))],
     checked: parsed.checked, confirmed: false };
 }

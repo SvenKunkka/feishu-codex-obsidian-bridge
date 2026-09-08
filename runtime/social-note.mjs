@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { normalizePlatformData } from './link-platforms.mjs';
 
 const START = '<!-- social-source:start -->';
 const END = '<!-- social-source:end -->';
@@ -70,7 +71,7 @@ export function renderSocialNote(input) {
     source_urls: [input.canonicalUrl], source_aliases: input.aliases || [input.sourceUrl, input.canonicalUrl].filter(Boolean),
     author: input.author || '', published_at: input.publishedAt || '', created: input.created || input.fetchedAt,
     fetched_at: input.fetchedAt, fetch_status: input.fetchStatus, capture_kind: input.captureKind || 'article',
-    summary_kind: input.summaryKind || 'model', body_hash: hash(text(input.body)), metrics: input.metrics || {},
+    summary_kind: input.summaryKind || 'model', body_hash: hash(text(input.body)), metrics: input.metrics || {}, platform_data: normalizePlatformData(input.platformData),
     tags: input.tags || [], message_id: input.messageId || '', chat_id: input.chatId || '',
     model_scope: 'social_clip', effective_from: '', valid_until: '', reviewed_by: '', reviewed_at: '',
     supersedes: [], previous_source_urls: []
@@ -84,7 +85,7 @@ export function renderSocialNote(input) {
 export function updateSourceSection(raw, input) {
   const parsed = parseSocialNote(raw);
   if (parsed.fields.source_key && parsed.fields.source_key !== input.sourceKey) throw new Error('拒绝用不同来源覆盖已有笔记');
-  const updates = { fetched_at: input.fetchedAt, fetch_status: input.fetchStatus, capture_kind: input.captureKind || 'article', author: input.author || '', published_at: input.publishedAt || '', body_hash: hash(text(input.body)), metrics: input.metrics || {}, source_aliases: [...new Set([...(Array.isArray(parsed.fields.source_aliases) ? parsed.fields.source_aliases : []), ...(input.aliases || [])])] };
+  const updates = { fetched_at: input.fetchedAt, fetch_status: input.fetchStatus, capture_kind: input.captureKind || 'article', author: input.author || '', published_at: input.publishedAt || '', body_hash: hash(text(input.body)), metrics: input.metrics || {}, platform_data: normalizePlatformData(input.platformData), source_aliases: [...new Set([...(Array.isArray(parsed.fields.source_aliases) ? parsed.fields.source_aliases : []), ...(input.aliases || [])])] };
   let result = raw.replace(/^---\r?\n([\s\S]*?)\r?\n---/, (all, front) => {
     for (const [key, value] of Object.entries(updates)) {
       const line = `${key}: ${JSON.stringify(value ?? '')}`;
@@ -93,9 +94,13 @@ export function updateSourceSection(raw, input) {
     }
     return `---\n${front}\n---`;
   });
-  const start = result.indexOf(START);
-  const end = result.indexOf(END, start);
-  if (start >= 0 && end >= start) result = result.slice(0, start) + sourceSection(input) + result.slice(end + END.length);
+  // Only standalone generated boundaries count. Literal marker text in a
+  // quoted source line, frontmatter or old metadata cannot truncate refresh.
+  const startMatch = /^<!-- social-source:start -->[\t ]*\r?$/m.exec(result);
+  const start = startMatch?.index ?? -1;
+  const endMatch = start >= 0 ? /^<!-- social-source:end -->[\t ]*\r?$/m.exec(result.slice(start + startMatch[0].length)) : null;
+  const end = endMatch ? start + startMatch[0].length + endMatch.index : -1;
+  if (start >= 0 && end >= start) result = result.slice(0, start) + sourceSection(input) + result.slice(end + endMatch[0].length);
   else {
     // Legacy files retain all user text. Append a separately managed capture so a
     // first refresh never guesses which part of an old note the user edited.
@@ -112,7 +117,9 @@ function sourceSection(input) {
     return `- ${label}：${metric == null ? '未知' : `${singleLine(metric.raw || metric.value)}${metric.approximate ? '（近似）' : ''}`}`;
   }).join('\n');
   const quote = text(input.body).replace(/<!-- social-source:(?:start|end) -->/g, '').split(/\r?\n/).map(line => `> ${line}`).join('\n');
-  return `${START}\n## 原文摘录\n\n<details>\n<summary>展开原文（仅作来源，默认不用于已确认知识复用）</summary>\n\n${quote}\n\n</details>\n\n## 来源\n\n- 平台：${singleLine(input.platform)}\n- 来源标题：${singleLine(input.title)}\n- 作者：${singleLine(input.author || '未提供')}\n- 发布时间：${singleLine(input.publishedAt || '未提供')}\n- 原始链接：${singleLine(input.canonicalUrl)}\n- 采集时间：${singleLine(input.fetchedAt)}\n- 获取状态：${singleLine(input.fetchStatus)}${input.captureKind ? `（${singleLine(input.captureKind)}）` : ''}\n- 更新说明：刷新只更新本区域，摘要与个人补充由你校正。\n\n<details>\n<summary>互动数据（本次采集快照）</summary>\n\n${metrics}\n\n</details>\n${END}`;
+  const pageFields = Object.values(normalizePlatformData(input.platformData));
+  const pageData = pageFields.length ? `\n\n## 页面信息快照\n\n${pageFields.map(item => `- ${singleLine(item.label)}：${singleLine(item.raw)}`).join('\n')}\n\n仅为本次页面显示，不作为人工确认或自动增长统计；项目承诺不代表实际交付。` : '';
+  return `${START}\n## 原文摘录\n\n<details>\n<summary>展开原文（仅作来源，默认不用于已确认知识复用）</summary>\n\n${quote}\n\n</details>\n\n## 来源\n\n- 平台：${singleLine(input.platform)}\n- 来源标题：${singleLine(input.title)}\n- 作者：${singleLine(input.author || '未提供')}\n- 发布时间：${singleLine(input.publishedAt || '未提供')}\n- 原始链接：${singleLine(input.canonicalUrl)}\n- 采集时间：${singleLine(input.fetchedAt)}\n- 获取状态：${singleLine(input.fetchStatus)}${input.captureKind ? `（${singleLine(input.captureKind)}）` : ''}\n- 更新说明：刷新只更新本区域，摘要与个人补充由你校正。${pageData}\n\n<details>\n<summary>互动数据（本次采集快照）</summary>\n\n${metrics}\n\n</details>\n${END}`;
 }
 
-function singleLine(value) { return text(value).replace(/[\r\n]/g, ' ').trim(); }
+function singleLine(value) { return text(value).replace(/<!-- social-source:(?:start|end) -->/g, '').replace(/[\r\n]/g, ' ').trim(); }

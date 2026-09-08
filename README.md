@@ -4,13 +4,15 @@ Turn a private Feishu conversation into a local, human-reviewed knowledge workfl
 
 [中文说明](README.zh.md) · [Usage](docs/USAGE.md) · [Security](SECURITY.md) · [Upstream attribution](NOTICE.md)
 
+Version **0.2.0** adds WeChat Official Account articles, public GitHub pages, Kickstarter and Indiegogo. See [CHANGELOG.md](CHANGELOG.md).
+
 This is an **unofficial, macOS-first extension** of [lark-channel-bridge](https://github.com/ddcarolyn/lark-coding-agent-bridge), pinned to npm version **0.7.0**. It includes the custom bridge hooks as a reproducible patch, not a copy of any user's running configuration. It is not affiliated with Feishu, OpenAI, Obsidian, or Browser Use.
 
 ## What it does
 
 - Saves completed question/answer exchanges as flat Markdown notes in one configured vault.
 - Reuses only the current, human-confirmed answer. Editing or withdrawing approval invalidates reuse; deleted claims are not restored from previous answers.
-- Collects accessible text, descriptions and available subtitles from Douyin, Xiaohongshu, Zhihu, Weibo, general websites, YouTube and Bilibili.
+- Collects accessible text, descriptions and available subtitles from Douyin, Xiaohongshu, Zhihu, Weibo, general websites, YouTube and Bilibili; also supports WeChat Official Account articles, public GitHub pages, Kickstarter and Indiegogo project pages.
 - Keeps source text separate from the reviewed summary and personal annotations. Repeat links return the existing note; explicit refresh preserves human edits.
 - Provides collection search, counts, platform/topic/time filters and approved-only synthesis. Interaction metrics retain timestamps, missing values and approximate display values.
 - Opens local files/folders from paths in the application owner's direct messages, including bare paths and already-mounted NAS shares on macOS. These operations are not archived as Q&A.
@@ -31,6 +33,14 @@ Requirements:
 - Optional `yt-dlp` for available video subtitles. No image/video media downloads are performed by the collector.
 
 Platform support means an adapter exists, **not** that every URL can be read. Login, verification, deleted posts, region restrictions, missing subtitles and platform layout changes can prevent or limit capture. Complete interactive use is macOS-first; tests on another OS do not certify desktop opening there.
+
+New-page boundaries in v0.2.0:
+
+- **WeChat**: `mp.weixin.qq.com/s/...` articles and identity-bearing long links; capture the visible article, account name and publication label. Paywalled previews are partial; verification/deleted pages are rejected. Embedded video is not transcribed.
+- **GitHub**: public repository README, rendered file text, issue/PR/discussion primary bodies, individual release notes and Wiki pages. It does not clone repositories, execute code, download release assets or scrape private/internal repositories. Replies/reviews are outside the captured primary body; lists/file trees are not articles.
+- **Kickstarter / Indiegogo**: visible campaign story and supported, separately identified detail/update/FAQ routes. A project description is not proof of delivered hardware; image-only content, hidden story and missing video text remain partial. Security challenges are not bypassed.
+- Stars, forks and available crowdfunding fields are displayed separately as **page metadata snapshots**, not disguised as likes/views or used for automatic funding-growth calculations. Missing fields remain absent/unknown.
+- Old v0.1 `web` notes are classified by source domain in the index without rewriting their key, canonical URL, manual text or approval history. Ambiguous duplicate aliases stop for review instead of silently choosing a note.
 
 ## Quick start
 

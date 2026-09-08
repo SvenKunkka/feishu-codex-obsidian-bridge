@@ -4,6 +4,7 @@ import { watch } from 'node:fs';
 import { basename, join, resolve, dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { parseSocialNote } from './social-note.mjs';
+import { effectiveNotePlatform } from './link-platforms.mjs';
 import { bridgeConfig } from './config.mjs';
 
 export const RULES_VERSION = '2026-09-08.1';
@@ -43,7 +44,7 @@ export function parseNote(raw) {
       effectiveFrom: String(fields.effective_from ?? ''),
       inactive: ['revoked','superseded','expired','needs_review','rejected'].includes(String(fields.review_status ?? '')),
       reviewer: String(fields.reviewed_by ?? ''), reviewedAt: String(fields.reviewed_at ?? ''),
-      platform: String(fields.platform ?? 'web'), sourceKey: String(fields.source_key ?? ''),
+      platform: effectiveNotePlatform(fields.platform, fields.canonical_url || fields.source_url), sourceKey: String(fields.source_key ?? ''),
       canonicalUrl: String(fields.canonical_url ?? ''), sourceUrl: String(fields.source_url ?? sourceUrls[0] ?? ''),
       author: String(fields.author ?? ''), publishedAt: String(fields.published_at ?? ''),
       fetchedAt: String(fields.fetched_at ?? ''), createdAt: String(fields.created ?? fields.created_at ?? ''),
@@ -345,6 +346,9 @@ export async function createFeishuWiki(options = {}) {
   const current = row => currentReason(row) === 'confirmed';
   function resultRow(row) {
     const extra = JSON.parse(row.extra || '{}');
+    // Unchanged v0.1 Markdown can legitimately retain a cached web category.
+    // Derive it at read time too, without rebuilding the human approval ledger.
+    if (row.note_type === 'social_clip') extra.platform = effectiveNotePlatform(extra.platform, extra.canonicalUrl || extra.sourceUrl);
     const confirmed = current(row);
     return { ...row,...extra,noteType:row.note_type,confirmed,reviewReason:currentReason(row),
       sourceUrls:JSON.parse(row.source_urls || '[]'),previousSourceUrls:JSON.parse(row.previous_source_urls || '[]'),

@@ -1,7 +1,8 @@
 import { basename } from 'node:path';
 import { METRIC_NAMES, SOCIAL_TIME_ZONE, shanghaiDate } from './social-store.mjs';
+import { EXTENDED_PLATFORM_LABELS } from './link-platforms.mjs';
 
-const PLATFORM_LABELS = { douyin: '抖音', xiaohongshu: '小红书', zhihu: '知乎', weibo: '微博', youtube: 'YouTube', bilibili: 'Bilibili', web: '网页' };
+const PLATFORM_LABELS = { douyin: '抖音', xiaohongshu: '小红书', zhihu: '知乎', weibo: '微博', youtube: 'YouTube', bilibili: 'Bilibili', ...EXTENDED_PLATFORM_LABELS, web: '网页' };
 const METRIC_LABELS = { likes: '点赞', comments: '评论', views: '播放/浏览', shares: '分享', favorites: '收藏', coins: '投币' };
 const SHIFT_DAY = (day, offset) => new Date(Date.parse(`${day}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10);
 const urlsIn = value => Array.from(String(value).matchAll(/https?:\/\/[^\s<>"'`\]）)]+/gu), m => m[0].replace(/[，。；！,;!]+$/u, ''));
@@ -43,7 +44,7 @@ export function parseSocialIntent(value, { now = new Date() } = {}) {
   else if (slash === '收藏' || collection || pendingOnly) kind = 'list';
   else return null;
   let platform = '';
-  const platformPatterns = [['xiaohongshu', /小红书|xiaohongshu/iu], ['douyin', /抖音|douyin/iu], ['zhihu', /知乎|zhihu/iu], ['weibo', /微博|weibo/iu], ['youtube', /youtube|油管/iu], ['bilibili', /bilibili|哔哩哔哩|B站/iu], ['web', /普通网页|网页/iu]];
+  const platformPatterns = [['wechat', /微信公众号|微信文章|公众号|wechat/iu], ['github', /github/iu], ['kickstarter', /kickstarter/iu], ['indiegogo', /indiegogo|indigogo/iu], ['xiaohongshu', /小红书|xiaohongshu/iu], ['douyin', /抖音|douyin/iu], ['zhihu', /知乎|zhihu/iu], ['weibo', /微博|weibo/iu], ['youtube', /youtube|油管/iu], ['bilibili', /bilibili|哔哩哔哩|B站/iu], ['web', /普通网页|网页/iu]];
   let rest = text.replace(/^\/\S+\s*/u, '').replace(/https?:\/\/[^\s<>"'`\]）)]+/gu, ' ');
   for (const [id, pattern] of platformPatterns) if (pattern.test(rest)) { platform = id; rest = rest.replace(new RegExp(pattern.source, 'giu'), ' '); break; }
   const period = periodIn(text, now);

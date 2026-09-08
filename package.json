@@ -1,6 +1,6 @@
 {
   "name": "feishu-codex-obsidian-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A macOS Feishu/Codex bridge with reviewed Obsidian knowledge and Browser Use social collections",
   "type": "module",
