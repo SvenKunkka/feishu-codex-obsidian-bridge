@@ -1,0 +1,2 @@
+# Preserve unified-diff context lines exactly; build checks the patch hash.
+patches/*.patch -whitespace

@@ -1,0 +1,28 @@
+{
+  "name": "feishu-codex-obsidian-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A macOS Feishu/Codex bridge with reviewed Obsidian knowledge and Browser Use social collections",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22.16.0" },
+  "bin": { "feishu-codex-obsidian-bridge": "./bin/feishu-codex-obsidian-bridge.mjs" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "pretest": "npm run build",
+    "test": "node --test tests/*.test.mjs scripts/*.test.mjs",
+    "start": "node bin/feishu-codex-obsidian-bridge.mjs"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.4.0",
+    "@larksuite/channel": "^0.4.1",
+    "commander": "^12.1.0",
+    "cross-spawn": "^7.0.6",
+    "diff": "9.0.0",
+    "graceful-fs": "^4.2.11",
+    "lark-channel-bridge": "0.7.0",
+    "proper-lockfile": "^4.1.2",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": { "linkedom": "^0.18.12" }
+}
