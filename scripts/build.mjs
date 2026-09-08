@@ -29,7 +29,7 @@ export async function build({ checkOnly = false } = {}) {
     sqlite = new DatabaseSync(':memory:');
     sqlite.exec('CREATE VIRTUAL TABLE build_probe USING fts5(body)');
   } catch (cause) {
-    throw new Error('This project requires Node.js with SQLite FTS5 (verified on Node 22.16.0+ and 24+). Upgrade Node.js before building.', { cause });
+    throw new Error('This project requires Node.js with SQLite FTS5. Use official Node.js 22.16.0 or a newer supported LTS release.', { cause });
   } finally { sqlite?.close(); }
   const manifest = JSON.parse(await readFile(join(root, 'patches/manifest.json'), 'utf8'));
   // Resolve the checkout-local dependency, never npm's global installation.
