@@ -83,3 +83,10 @@ npm start -- run --profile codex --agent codex
 公开版不包含聊天样本、飞书凭据、个人路径、Obsidian 内容、审核账本、日志或部署备份。自动化测试通过不代表每个平台当前都已完成真实登录态验收。升级上游时必须重新审查补丁，不能强套其他版本。
 
 MIT 许可；保留原桥接项目归属，见 [LICENSE](LICENSE)、[NOTICE.md](NOTICE.md)。
+
+
+<!-- SVENKUNKKA-CONTACT:BEGIN -->
+
+**仓库维护者 / Repository maintainer:** [SvenKunkka](https://github.com/SvenKunkka) · [X / Twitter](https://x.com/Svenu1s5)
+
+<!-- SVENKUNKKA-CONTACT:END -->

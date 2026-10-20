@@ -1,3 +1,7 @@
+<!-- SVENKUNKKA-README-NAV:BEGIN -->
+[中文项目说明](#project-overview-zh) · [English overview](#project-overview-en) · [维护者 X / Maintainer on X](https://x.com/Svenu1s5)
+<!-- SVENKUNKKA-README-NAV:END -->
+
 # Feishu ↔ Codex ↔ Obsidian Bridge
 
 Turn a private Feishu conversation into a local, human-reviewed knowledge workflow. Ask Codex questions, collect social links through Browser Use, and edit the resulting Markdown notes in Obsidian.
@@ -107,3 +111,30 @@ An upstream update requires reviewing/rebasing the patch and rerunning tests; do
 ## License
 
 MIT. Original bridge contributions retain their upstream copyright. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+
+
+---
+
+<!-- SVENKUNKKA-PROJECT-INFO:BEGIN -->
+
+<a id="project-overview-zh"></a>
+## 中文项目说明
+
+将飞书私聊、Codex 与 Obsidian 连接为人工审核的知识整理流程，支持问答归档、可访问网页采集和本机文件打开。它是 [lark-channel-bridge](https://github.com/ddcarolyn/lark-coding-agent-bridge) 的非官方扩展，保留上游归属。
+
+**使用入口：** 先读 [中文说明](README.zh.md) 和 [安全说明](SECURITY.md)，按要求准备 Node.js、已登录 Codex、Browser Use 和飞书配置，运行 `npm ci`、`npm run build` 并配置 `.env`。
+
+**范围说明：** 面向 macOS 上的个人桌面使用，不是多用户安全机器人；桥接停止时不会继续采集，没有独立后台爬虫或云同步服务。
+
+<a id="project-overview-en"></a>
+## English project overview
+
+Connects private Feishu conversations, Codex and Obsidian into a human-reviewed knowledge workflow, with Q&A archiving, accessible-page collection and local file opening. It is an unofficial extension of [lark-channel-bridge](https://github.com/ddcarolyn/lark-coding-agent-bridge), with upstream attribution preserved.
+
+**Getting started:** Read the [usage guide](docs/USAGE.md) and [security notes](SECURITY.md), prepare the required Node.js version, signed-in Codex, Browser Use and Feishu configuration, then run `npm ci`, `npm run build` and configure `.env`.
+
+**Scope:** Designed for personal desktop use on macOS, not as a secure multi-user bot. Collection stops with the bridge; there is no independent background crawler or cloud-sync service.
+
+**仓库维护者 / Repository maintainer:** [SvenKunkka](https://github.com/SvenKunkka) · [X / Twitter](https://x.com/Svenu1s5)
+
+<!-- SVENKUNKKA-PROJECT-INFO:END -->
